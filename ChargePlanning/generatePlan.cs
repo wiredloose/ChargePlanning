@@ -63,15 +63,20 @@ namespace ChargePlanning
 
             // Store resulting estimated yield from this table run 
             List<PlanTableRun> planTblRuns = new List<PlanTableRun>();
-            float total_yield = (float)0;
+            float total_yield_dkk = (float)0;
+            float total_yield_eur = (float)0;
             foreach (ChargePlanRow row in planTblArr)
             {
-                total_yield += (float)row.sale_potential_dkk;
-                log.LogInformation("yield_dkk: " + total_yield + " from row: " + row.hour);
+                total_yield_dkk += (float)row.sale_potential_dkk;
+                total_yield_eur += (float)row.sale_potential_eur;
+                log.LogInformation("yield_dkk: " + total_yield_dkk + " from row: " + row.hour);
+                log.LogInformation("yield_eur: " + total_yield_eur + " from row: " + row.hour);
             }
-            planTblRuns.Add(new PlanTableRun { charge_trigger_hour = charge_trigger_hour, total_yield_dkk = total_yield });
-            log.LogInformation("total_yield_dkk: " + total_yield + " from charge_trigger_hour value: " + charge_trigger_hour);
+            planTblRuns.Add(new PlanTableRun { charge_trigger_hour = charge_trigger_hour, total_yield_dkk = total_yield_dkk, total_yield_eur = total_yield_eur });
+            log.LogInformation("total_yield_dkk: " + total_yield_dkk + " from charge_trigger_hour value: " + charge_trigger_hour);
             log.LogInformation("planTblRuns[0]: total_yield_dkk" + planTblRuns[0].total_yield_dkk + ", planTblRuns[0]: charge_trigger_hour" + planTblRuns[0].charge_trigger_hour);
+            log.LogInformation("total_yield_eur: " + total_yield_eur + " from charge_trigger_hour value: " + charge_trigger_hour);
+            log.LogInformation("planTblRuns[0]: total_yield_eur" + planTblRuns[0].total_yield_eur + ", planTblRuns[0]: charge_trigger_hour" + planTblRuns[0].charge_trigger_hour);
 
             // return JSON result
             return new OkObjectResult(JsonConvert.SerializeObject(planTblArr));
@@ -154,11 +159,17 @@ namespace ChargePlanning
             }
             planTblArr[rowNo].surplus_sellable_production = surplus_sellable_prod;
             
-            // sale potential: =IF((elspotprice_dkk_mwh*surplus_sellable_production/1000000) > 0 THEN elspotprice_dkk_mwh*surplus_sellable_production/1000000 ELSE 0)
-            float sale_pot = (planTblArr[rowNo].elspotprice_dkk * (float)planTblArr[rowNo].surplus_sellable_production / (float)1000000) > 0
+            // sale potential DKK: =IF((elspotprice_dkk_mwh*surplus_sellable_production/1000000) > 0 THEN elspotprice_dkk_mwh*surplus_sellable_production/1000000 ELSE 0)
+            float sale_pot_dkk = (planTblArr[rowNo].elspotprice_dkk * (float)planTblArr[rowNo].surplus_sellable_production / (float)1000000) > 0
                 ? planTblArr[rowNo].elspotprice_dkk * (float)planTblArr[rowNo].surplus_sellable_production / (float)1000000
                 : 0;
-            planTblArr[rowNo].sale_potential_dkk = sale_pot;
+            planTblArr[rowNo].sale_potential_dkk = sale_pot_dkk;
+
+            // sale potential EUR: =IF((elspotprice_eur_mwh*surplus_sellable_production/1000000) > 0 THEN elspotprice_eur_mwh*surplus_sellable_production/1000000 ELSE 0)
+            float sale_pot_eur = (planTblArr[rowNo].elspotprice_eur * (float)planTblArr[rowNo].surplus_sellable_production / (float)1000000) > 0
+                ? planTblArr[rowNo].elspotprice_eur * (float)planTblArr[rowNo].surplus_sellable_production / (float)1000000
+                : 0;
+            planTblArr[rowNo].sale_potential_eur = sale_pot_eur;
         }
     }
 
@@ -167,6 +178,7 @@ namespace ChargePlanning
     {
         public int charge_trigger_hour { get; set; }
         public float total_yield_dkk { get; set; }
+        public float total_yield_eur { get; set; }
     }
 
     public class ChargePlanRow
@@ -184,8 +196,11 @@ namespace ChargePlanning
         public float elspotprice_dkk { get; set; }
         public int surplus_sellable_production { get; set; }
         public float sale_potential_dkk { get; set; }
+        public float elspotprice_eur { get; set; }
+        public float sale_potential_eur { get; set; }
+
     }
 
-    
+
 }
 
