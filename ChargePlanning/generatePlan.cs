@@ -48,45 +48,125 @@ namespace ChargePlanning
 
 
 
-            //insert charge trigger hour
+            // if param provided, insert charge trigger hour
             int charge_trigger_hour = string.IsNullOrEmpty(hour) ? 0 : Int16.Parse(hour);
-            if (charge_trigger_hour>0)
+            if (charge_trigger_hour > 0)
             {
                 planTblArr[charge_trigger_hour].charge_trigger = true;
-            } 
+
+                // Do table calculations
+                for (int i = 0; i < planTblArr.Count; i++)
+                {
+                    CalculateRow(planTblArr, i, max_batt_input_w, batt_capacity_kwh, max_grid_feedin_w, log);
+                }
+
+                // return JSON result
+                return new OkObjectResult(JsonConvert.SerializeObject(planTblArr));
+            }
+            // otherwise, run the table calculations for charge trigger inserted in all rows to identify best yield 
+            else {
+
+                List<PlanTableRun> planTblRuns = new List<PlanTableRun>();
+                float total_yield_dkk = (float)0;
+                float total_yield_eur = (float)0;
+                float highest_charge = (float)0;
+
+                for (int runNo=0; runNo < planTblArr.Count; runNo++)
+                {
+                    //reset charge trigger from previous table run
+                    if (runNo > 0) { planTblArr[runNo-1].charge_trigger = false; } 
+
+                    //insert charge trigger in this table run
+                    planTblArr[runNo].charge_trigger = true;
+
+                    // Do table calculations for this table run
+                    for (int i = 0; i < planTblArr.Count; i++)
+                    {
+                        CalculateRow(planTblArr, i, max_batt_input_w, batt_capacity_kwh, max_grid_feedin_w, log);
+                    }
+
+                    // Store resulting estimated yield from this table run 
+                    total_yield_dkk = (float)0;
+                    total_yield_eur = (float)0;
+                    highest_charge = (float)0;
+                    foreach (ChargePlanRow row in planTblArr)
+                    {
+                        highest_charge = row.accumulated_charge>highest_charge ? (float)row.accumulated_charge: highest_charge;  
+                        total_yield_dkk += (float)row.sale_potential_dkk;
+                        total_yield_eur += (float)row.sale_potential_eur;
+                        //log.LogInformation("yield_dkk: " + total_yield_dkk + " from row: " + row.hour);
+                        //log.LogInformation("yield_eur: " + total_yield_eur + " from row: " + row.hour);
+                    }
+                    planTblRuns.Add(new PlanTableRun { charge_trigger_hour = runNo, highest_accumulated_charge = highest_charge, total_yield_dkk = total_yield_dkk, total_yield_eur = total_yield_eur });
+                    //log.LogInformation("total_yield_dkk: " + total_yield_dkk + " from charge_trigger_hour value: " + runNo);
+                    //log.LogInformation("planTblRuns[0]: total_yield_dkk" + planTblRuns[0].total_yield_dkk + ", planTblRuns[0]: charge_trigger_hour" + planTblRuns[0].charge_trigger_hour);
+                    //log.LogInformation("total_yield_eur: " + total_yield_eur + " from charge_trigger_hour value: " + runNo);
+                    //log.LogInformation("planTblRuns[0]: total_yield_eur" + planTblRuns[0].total_yield_eur + ", planTblRuns[0]: charge_trigger_hour" + planTblRuns[0].charge_trigger_hour);
+                }
+
+                //identify table run with best yield while observing that battery reaches full capacity
+                int chargetrigger_best_yield = 0;
+                total_yield_dkk = 0;
+                total_yield_eur = 0;
+
+                foreach (PlanTableRun tblRun in planTblRuns)
+                {
+                    //log.LogInformation("run hour: "+tblRun.charge_trigger_hour+ " highest_charge: "+  tblRun.highest_accumulated_charge + " yield dkk: " + tblRun.total_yield_dkk + " yield eur: " + tblRun.total_yield_eur);
+                
+                    // if battery has reached full capacity on this run
+                    if ((int)tblRun.highest_accumulated_charge == 1)
+                    {
+                        //use EUR yields for the check if it has values, otherwise DKK yields
+                        if (planTblRuns[23].total_yield_eur > 0)
+                        {
+                            if (tblRun.total_yield_eur > total_yield_eur)
+                            {
+                                total_yield_eur = tblRun.total_yield_eur;
+                                chargetrigger_best_yield = tblRun.charge_trigger_hour;
+                            }
+                        } else
+                        {
+                            if (tblRun.total_yield_dkk > total_yield_dkk)
+                            {
+                                total_yield_dkk = tblRun.total_yield_dkk;
+                                chargetrigger_best_yield = tblRun.charge_trigger_hour;
+                            }
+                        }
+                    }
+                }
+                //log.LogInformation("identified best run hour: " + chargetrigger_best_yield);
+
+                
+                // IF best run hour is 0, there is likely no best run hour - so trigger battery to charge at hour 6 in the morning
+                chargetrigger_best_yield = chargetrigger_best_yield == 0 ? 6: chargetrigger_best_yield;
+
+                
+                // finally set the chargetrigger on the best row and run the table calculations again
+                foreach (ChargePlanRow r in planTblArr)
+                {
+                    r.charge_trigger = false;
+                }
+                planTblArr[chargetrigger_best_yield].charge_trigger = true;
+
+                // Do table calculations
+                for (int i = 0; i < planTblArr.Count; i++)
+                {
+                    CalculateRow(planTblArr, i, max_batt_input_w, batt_capacity_kwh, max_grid_feedin_w, log);
+                }
+
+
+                // return JSON result
+                return new OkObjectResult(JsonConvert.SerializeObject(planTblArr));
+            }
             
-            // Do table calculations
-            for (int i=0; i < planTblArr.Count; i++)
-            {
-                CalculateRow(planTblArr, i, max_batt_input_w, batt_capacity_kwh, max_grid_feedin_w, log);
-            }
-
-            // Store resulting estimated yield from this table run 
-            List<PlanTableRun> planTblRuns = new List<PlanTableRun>();
-            float total_yield_dkk = (float)0;
-            float total_yield_eur = (float)0;
-            foreach (ChargePlanRow row in planTblArr)
-            {
-                total_yield_dkk += (float)row.sale_potential_dkk;
-                total_yield_eur += (float)row.sale_potential_eur;
-                log.LogInformation("yield_dkk: " + total_yield_dkk + " from row: " + row.hour);
-                log.LogInformation("yield_eur: " + total_yield_eur + " from row: " + row.hour);
-            }
-            planTblRuns.Add(new PlanTableRun { charge_trigger_hour = charge_trigger_hour, total_yield_dkk = total_yield_dkk, total_yield_eur = total_yield_eur });
-            log.LogInformation("total_yield_dkk: " + total_yield_dkk + " from charge_trigger_hour value: " + charge_trigger_hour);
-            log.LogInformation("planTblRuns[0]: total_yield_dkk" + planTblRuns[0].total_yield_dkk + ", planTblRuns[0]: charge_trigger_hour" + planTblRuns[0].charge_trigger_hour);
-            log.LogInformation("total_yield_eur: " + total_yield_eur + " from charge_trigger_hour value: " + charge_trigger_hour);
-            log.LogInformation("planTblRuns[0]: total_yield_eur" + planTblRuns[0].total_yield_eur + ", planTblRuns[0]: charge_trigger_hour" + planTblRuns[0].charge_trigger_hour);
-
-            // return JSON result
-            return new OkObjectResult(JsonConvert.SerializeObject(planTblArr));
         }
 
 
 
         private static void CalculateRow(List<ChargePlanRow> planTblArr, int rowNo, int max_batt_input_w, int batt_capacity_kwh, int max_grid_feedin_w, ILogger log)
         {
-            log.LogInformation("row no: " + rowNo + " has charge trigger value: " + planTblArr[rowNo].charge_trigger);
+            //log.LogInformation("row no: " + rowNo + " has charge trigger value: " + planTblArr[rowNo].charge_trigger);
+            
             // surplus production
             int surplus_prod = planTblArr[rowNo].est_production - planTblArr[rowNo].est_consumption;
             surplus_prod = surplus_prod < 0 ? 0 : surplus_prod;
@@ -177,8 +257,10 @@ namespace ChargePlanning
     public class PlanTableRun
     {
         public int charge_trigger_hour { get; set; }
+        public float highest_accumulated_charge { get; set; }
         public float total_yield_dkk { get; set; }
         public float total_yield_eur { get; set; }
+
     }
 
     public class ChargePlanRow
